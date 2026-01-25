@@ -36,7 +36,7 @@ handler = WebhookHandler(channel_secret)
 # ===========================
 #  Google Sheet 與 快取設定 (維持不變)
 # ===========================
-SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1FoDBb7Vk8OwoaIrAD31y5hA48KPBN91yTMRnuVMHktQ/export?format=csv"
+SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1IPm1wGgYKgU5iB0nRUrzYji8ZH_HKsvl5r031gNWnac/export?format=csv"
 
 SHEET_CACHE = []
 SHEET_LAST_FETCH = 0
@@ -115,7 +115,7 @@ def get_images(keyword):
             picked = random.choice(rows)
             return [{
                 "no": picked["編號"],
-                "keyword": picked["關鍵字"],
+                "keyword": picked["說話的內容"],
                 "url": picked["圖片網址"],
                 "episode": picked["集數資訊"],
                 "audio": picked.get("音檔", "").strip(),
@@ -123,11 +123,11 @@ def get_images(keyword):
             }]
 
         for row in rows:
-            kw = row.get("藝人" if use_artist else "關鍵字", "").strip().lower()
+            kw = row.get("藝人" if use_artist else "說話的內容", "").strip().lower()
             if all(ch in kw for ch in keyword_clean):
                 results.append({
                     "no": row["編號"],
-                    "keyword": row["關鍵字"],
+                    "keyword": row["說話的內容"],
                     "url": row["圖片網址"],
                     "episode": row["集數資訊"],
                     "audio": row.get("音檔", "").strip(),
