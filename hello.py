@@ -1,13 +1,20 @@
 from flask import Flask, request, abort
-from linebot import LineBotApi, WebhookHandler
-from linebot.exceptions import InvalidSignatureError
-from linebot.models import (
-    MessageEvent,
+from linebot.v3 import WebhookHandler
+from linebot.v3.exceptions import InvalidSignatureError
+from linebot.v3.messaging import (
+    Configuration,
+    ApiClient,
+    MessagingApi,
+    ReplyMessageRequest,
     TextMessage,
-    TextSendMessage,
-    ImageSendMessage,
-    AudioSendMessage,
+    ImageMessage,
+    AudioMessage
 )
+from linebot.v3.webhooks import (
+    MessageEvent,
+    TextMessageContent
+)
+
 import random
 import os, requests, csv, traceback, time
 from io import StringIO
@@ -17,13 +24,20 @@ from collections import OrderedDict
 
 app = Flask(__name__)
 
-line_bot_api = LineBotApi(os.getenv("LINE_CHANNEL_ACCESS_TOKEN"))
-handler = WebhookHandler(os.getenv("LINE_CHANNEL_SECRET"))
+# ===========================
+#  SDK v3 設定 (改動區)
+# ===========================
+access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
+channel_secret = os.getenv("LINE_CHANNEL_SECRET")
 
-# Google Sheet CSV
+configuration = Configuration(access_token=access_token)
+handler = WebhookHandler(channel_secret)
+
+# ===========================
+#  Google Sheet 與 快取設定 (維持不變)
+# ===========================
 SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1FoDBb7Vk8OwoaIrAD31y5hA48KPBN91yTMRnuVMHktQ/export?format=csv"
 
-# ========= 快取設定 =========
 SHEET_CACHE = []
 SHEET_LAST_FETCH = 0
 SHEET_TTL = 300  # 5 分鐘
@@ -32,7 +46,6 @@ AUDIO_DURATION_CACHE = {}
 
 user_cache = OrderedDict()
 MAX_USERS = 800
-# ===========================
 
 
 def get_sheet_rows():
@@ -43,16 +56,20 @@ def get_sheet_rows():
     if SHEET_CACHE and now - SHEET_LAST_FETCH < SHEET_TTL:
         return SHEET_CACHE
 
-    res = requests.get(SHEET_CSV_URL, timeout=10)
-    res.raise_for_status()
+    try:
+        res = requests.get(SHEET_CSV_URL, timeout=10)
+        res.raise_for_status()
 
-    decoded_content = res.content.decode("utf-8-sig")
-    f = StringIO(decoded_content)
-    reader = csv.DictReader(f)
+        decoded_content = res.content.decode("utf-8-sig")
+        f = StringIO(decoded_content)
+        reader = csv.DictReader(f)
 
-    SHEET_CACHE = list(reader)
-    SHEET_LAST_FETCH = now
-    return SHEET_CACHE
+        SHEET_CACHE = list(reader)
+        SHEET_LAST_FETCH = now
+        return SHEET_CACHE
+    except Exception:
+        traceback.print_exc()
+        return []
 
 
 def get_audio_duration_ms(url):
@@ -94,7 +111,7 @@ def get_images(keyword):
         if use_artist:
             keyword_clean = keyword_clean[1:]
 
-        if random_pick:
+        if random_pick and rows:
             picked = random.choice(rows)
             return [{
                 "no": picked["編號"],
@@ -123,6 +140,10 @@ def get_images(keyword):
         return []
 
 
+# ===========================
+#  Flask 路由 (改動區)
+# ===========================
+
 @app.route("/callback", methods=['POST'])
 def callback():
     signature = request.headers.get('X-Line-Signature', '')
@@ -138,11 +159,22 @@ def callback():
 def ping():
     return "OK", 200
 
+# 輔助函式：統一回覆訊息用 (v3 寫法)
+def reply(reply_token, messages):
+    with ApiClient(configuration) as api_client:
+        line_bot_api = MessagingApi(api_client)
+        line_bot_api.reply_message(
+            ReplyMessageRequest(
+                reply_token=reply_token,
+                messages=messages
+            )
+        )
 
-@handler.add(MessageEvent, message=TextMessage)
+@handler.add(MessageEvent, message=TextMessageContent)
 def handle_text(event):
     user_id = event.source.user_id
     user_input = event.message.text.strip()
+    reply_token = event.reply_token
 
     last_results = user_cache.get(user_id, [])
 
@@ -152,26 +184,27 @@ def handle_text(event):
             selected = [r for r in last_results if r["no"] == user_input]
             if selected:
                 data = selected[0]
+                
+                # 建構 v3 訊息模型
                 msgs = [
-                    ImageSendMessage(
+                    ImageMessage(
                         original_content_url=data["url"],
                         preview_image_url=data["url"]
                     ),
-                    TextSendMessage(text=f"集數資訊：{data['episode']}")
+                    TextMessage(text=f"集數資訊：{data['episode']}")
                 ]
+                
                 if data.get("audio"):
                     duration = get_audio_duration_ms(data["audio"])
-                    msgs.append(AudioSendMessage(
+                    msgs.append(AudioMessage(
                         original_content_url=data["audio"],
                         duration=duration
                     ))
-                line_bot_api.reply_message(event.reply_token, msgs)
+                
+                reply(reply_token, msgs)
                 return
 
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="沒有這張圖片餒！")
-        )
+        reply(reply_token, [TextMessage(text="沒有這張圖片餒！")])
         return
 
     # ===== 關鍵字搜尋 =====
@@ -186,53 +219,45 @@ def handle_text(event):
         if len(results) == 1:
             data = results[0]
             msgs = [
-                ImageSendMessage(
+                ImageMessage(
                     original_content_url=data["url"],
                     preview_image_url=data["url"]
                 ),
-                TextSendMessage(text=f"集數資訊：{data['episode']}")
+                TextMessage(text=f"集數資訊：{data['episode']}")
             ]
             if data.get("audio"):
                 duration = get_audio_duration_ms(data["audio"])
-                msgs.append(AudioSendMessage(
+                msgs.append(AudioMessage(
                     original_content_url=data["audio"],
                     duration=duration
                 ))
-            line_bot_api.reply_message(event.reply_token, msgs)
+            reply(reply_token, msgs)
             return
 
-        # 情況 B: 多筆結果 -> 列表顯示 (處理字數過長問題)
+        # 情況 B: 多筆結果 -> 列表顯示
         reply_messages = []
         current_text = "請輸入圖片編號以查看圖片：\n"
-        
-        # 用來計算當前累積了多少字，這裡設定 4000 (上限是 5000)
         MAX_CHARS = 4000 
 
         for data in results:
             line = f"{data['no']}. {data['keyword']}\n"
             
-            # 如果加上這一行會超過單一訊息限制，就先把目前的存成一個訊息框
             if len(current_text) + len(line) > MAX_CHARS:
-                reply_messages.append(TextSendMessage(text=current_text.strip()))
-                current_text = "" # 清空，準備裝下一批
+                reply_messages.append(TextMessage(text=current_text.strip()))
+                current_text = ""
                 
-                # LINE 一次最多只能回覆 5 個訊息框
                 if len(reply_messages) >= 5:
                     current_text = "結果太多，僅顯示前 5 頁內容..."
                     break
 
             current_text += line
 
-        # 把最後剩餘的文字加進去
         if current_text and len(reply_messages) < 5:
-            reply_messages.append(TextSendMessage(text=current_text.strip()))
+            reply_messages.append(TextMessage(text=current_text.strip()))
 
-        line_bot_api.reply_message(event.reply_token, reply_messages)
+        reply(reply_token, reply_messages)
     else:
-        line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text="沒有這張圖片餒！")
-        )
+        reply(reply_token, [TextMessage(text="沒有這張圖片餒！")])
 
 
 if __name__ == "__main__":
