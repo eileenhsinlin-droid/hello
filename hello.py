@@ -117,19 +117,19 @@ def get_images(keyword):
                 "no": picked["編號"],
                 "keyword": picked["說話的內容"],
                 "url": picked["圖片網址"],
-                "episode": picked["集數資訊"],
+                "episode": picked["影片資訊"],
                 "audio": picked.get("音檔", "").strip(),
                 "artist": picked.get("藝人", "")
             }]
 
         for row in rows:
-            kw = row.get("藝人" if use_artist else "關鍵字", "").strip().lower()
+            kw = row.get("藝人" if use_artist else "說話的內容", "").strip().lower()
             if all(ch in kw for ch in keyword_clean):
                 results.append({
                     "no": row["編號"],
                     "keyword": row["說話的內容"],
                     "url": row["圖片網址"],
-                    "episode": row["集數資訊"],
+                    "episode": row["影片資訊"],
                     "audio": row.get("音檔", "").strip(),
                     "artist": row.get("藝人", "")
                 })
