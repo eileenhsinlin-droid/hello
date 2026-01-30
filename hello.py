@@ -115,7 +115,7 @@ def get_images(keyword):
             picked = random.choice(rows)
             return [{
                 "no": picked["編號"],
-                "keyword": picked["關鍵字"],
+                "keyword": picked["說話的內容"],
                 "url": picked["圖片網址"],
                 "episode": picked["集數資訊"],
                 "audio": picked.get("音檔", "").strip(),
@@ -127,7 +127,7 @@ def get_images(keyword):
             if all(ch in kw for ch in keyword_clean):
                 results.append({
                     "no": row["編號"],
-                    "keyword": row["關鍵字"],
+                    "keyword": row["說話的內容"],
                     "url": row["圖片網址"],
                     "episode": row["集數資訊"],
                     "audio": row.get("音檔", "").strip(),
