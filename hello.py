@@ -154,7 +154,7 @@ def callback():
         abort(400)
     return 'OK'
 
-
+#與Cronitor連動喚醒
 @app.route("/ping", methods=["GET"])
 def ping():
     return "OK", 200
