@@ -40,7 +40,7 @@ SHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/1IPm1wGgYKgU5iB0nRUrzYji
 
 SHEET_CACHE = []
 SHEET_LAST_FETCH = 0
-SHEET_TTL = 30 
+SHEET_TTL = 10 
 
 AUDIO_DURATION_CACHE = {}
 
